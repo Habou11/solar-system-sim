@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>태양계 시뮬레이션</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
+  <style>
+    body {
+      margin: 0; overflow: hidden;
+      background: black;
+      color: white;
+      font-family: 'Noto Sans', sans-serif, sans-serif;
+      -webkit-user-select:none;
+      -moz-user-select:none;
+      -ms-user-select:none;
+      user-select:none;
+    }
+    .ui-button {
+      position: fixed;
+      bottom: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 10px;
+      z-index: 1000;
+    }
+    .ui-button button {
+      padding: 10px 16px;
+      font-size: 14px;
+      font-weight: bold;
+      border: none;
+      border-radius: 6px;
+      background: #eee;
+      cursor: pointer;
+      transition: background 0.2s;
+      user-select:none;
+    }
+    .ui-button button:hover {
+      background: #ccc;
+    }
+    .zoom-control {
+      position: fixed;
+      right: 20px;
+      top: 50%;
+      transform: translateY(-50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      z-index: 1000;
+      background: rgba(255,255,255,0.85);
+      padding: 10px;
+      border-radius: 10px;
+      user-select:none;
+    }
+    .zoom-control button {
+      margin: 4px 0;
+      width: 36px;
+      height: 36px;
+      font-size: 20px;
+      font-weight: bold;
+      border: none;
+      border-radius: 6px;
+      background: #fff;
+      cursor: pointer;
+    }
+    .zoom-control input[type="range"] {
+      writing-mode: bt-lr;
+      -webkit-appearance: slider-vertical;
+      width: 30px;
+      height: 130px;
+      margin: 8px 0;
+    }
+    /* 정보창 스타일 */
+    #infoBox {
+      position: fixed;
+      top: 60px;
+      left: 20px;
+      width: 240px;
+      background: rgba(255,255,255,0.95);
+      color: black;
+      border-radius: 10px;
+      padding: 12px 16px 16px 16px;
+      box-shadow: 0 0 15px rgba(255,255,255,0.3);
+      user-select:none;
+      cursor: default;
+      z-index: 1100;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.3s ease-in-out, visibility 0.3s ease-in-out;
+    }
+    #infoBox.show {
+      opacity: 1;
+      visibility: visible;
+    }
+    #infoBox h2 {
+      margin: 0 0 8px 0;
+      font-weight: 700;
+      font-size: 18px;
+    }
+    #infoBox ul {
+      padding-left: 18px;
+      margin: 0;
+      font-size: 14px;
+      line-height: 1.3;
+    }
+    #infoBox ul li {
+      margin-bottom: 6px;
+    }
+    #closeBtn {
+      position: absolute;
+      top: 8px;
+      right: 12px;
+      font-size: 20px;
+      font-weight: bold;
+      color: #444;
+      cursor: pointer;
+      user-select:none;
+      transition: color 0.2s;
+    }
+    #closeBtn:hover {
+      color: #000;
+    }
+    /* 배속 표시 스타일 (독립) */
+    #speedDisplay {
+      position: fixed; /* 독립적인 위치 설정 */
+      top: 20px; /* 상단에서 20px */
+      right: 20px; /* 오른쪽에서 20px */
+      font-size: 14px;
+      font-weight: bold;
+      color: #333;
+      background: rgba(255,255,255,0.85); /* 줌 컨트롤과 유사한 배경 */
+      padding: 6px 10px;
+      border-radius: 5px;
+      text-align: center;
+      width: 80px;
+      z-index: 1000; /* 다른 UI 요소 위에 표시 */
+    }
+  </style>
+</head>
+<body>
+
+<div class="ui-button">
+  <button id="pauseBtn">⏸ 정지</button>
+  <button id="slowBtn">느리게</button>
+  <button id="fastBtn">빠르게</button>
+</div>
+
+<div class="zoom-control">
+  <button id="zoomInBtn">＋</button>
+  <input type="range" min="0.5" max="2" step="0.01" value="1" id="zoomSlider" />
+  <button id="zoomOutBtn">−</button>
+</div>
+
+<span id="speedDisplay">배속: x1.0</span>
+
+<div id="infoBox">
+  <span id="closeBtn">×</span>
+  <h2>행성 정보</h2>
+  <ul id="infoContent"></ul>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
+<script>
+let planets = [];
+let stars = [];
+let selectedPlanet = null;
+let baseSpeed = 0.5;
+let displaySpeed = 1;
+let maxDisplaySpeed = 4;
+let currentSpeed = baseSpeed;
+let isPaused = false;
+let zoom = 1;
+
+let infoBox = null;
+let infoContent = null;
+let speedDisplay = null;
+let infoBoxX = 20, infoBoxY = 60;
+let draggingInfo = false;
+let dragOffsetX = 0, dragOffsetY = 0;
+
+function setup() {
+  createCanvas(windowWidth, windowHeight);
+  angleMode(DEGREES);
+  initPlanets();
+  generateStars();
+
+  infoBox = document.getElementById('infoBox');
+  infoContent = document.getElementById('infoContent');
+  speedDisplay = document.getElementById('speedDisplay');
+
+  // 버튼 이벤트 연결
+  document.getElementById('pauseBtn').addEventListener('click', togglePause);
+  document.getElementById('slowBtn').addEventListener('click', () => adjustSpeed(-0.1));
+  document.getElementById('fastBtn').addEventListener('click', () => adjustSpeed(0.1));
+  document.getElementById('zoomInBtn').addEventListener('click', () => setZoom(zoom * 1.1));
+  document.getElementById('zoomOutBtn').addEventListener('click', () => setZoom(zoom / 1.1));
+  document.getElementById('zoomSlider').addEventListener('input', (e) => setZoom(parseFloat(e.target.value)));
+  document.getElementById('closeBtn').addEventListener('click', closeInfoBox);
+
+  // 드래그 시작
+  infoBox.addEventListener('mousedown', infoMouseDown);
+  window.addEventListener('mouseup', infoMouseUp);
+  window.addEventListener('mousemove', infoMouseMove);
+
+  // 터치 지원
+  infoBox.addEventListener('touchstart', infoTouchStart, {passive: false});
+  window.addEventListener('touchend', infoTouchEnd);
+  window.addEventListener('touchmove', infoTouchMove, {passive: false});
+
+  updateSpeedDisplay(); // 초기 배속 표시
+}
+
+function draw() {
+  background(0);
+  drawStars();
+
+  translate(width / 2, height / 2);
+  scale(zoom);
+
+  let targetSpeed = isPaused ? 0 : baseSpeed * displaySpeed;
+  currentSpeed = lerp(currentSpeed, targetSpeed, 0.05);
+
+  noFill();
+  stroke(100, 150);
+  strokeWeight(1);
+  for (let p of planets) {
+    if (p.orbit > 0) ellipse(0, 0, p.orbit * 2);
+  }
+
+  for (let p of planets) {
+    if (p.orbit > 0) p.angle += p.speed * currentSpeed;
+    let x = p.orbit === 0 ? 0 : cos(p.angle) * p.orbit;
+    let y = p.orbit === 0 ? 0 : sin(p.angle) * p.orbit;
+    p.x = x;
+    p.y = y;
+
+    // 할로 효과
+    noStroke();
+    for(let i=0; i<5; i++) {
+      fill(p.color[0], p.color[1], p.color[2], 80 - i*15);
+      ellipse(x, y, p.size*2 + i*10);
+    }
+
+    fill(p.color[0], p.color[1], p.color[2]);
+    ellipse(x, y, p.size * 2);
+
+    fill(255);
+    stroke(0);
+    strokeWeight(3);
+    textSize(12 / zoom);
+    textAlign(CENTER);
+    text(p.name, x, y - p.size - 8);
+    noStroke();
+  }
+
+  // 정보창 드래그중이라면 스타일 업데이트 (선택된 행성 있음)
+  if (infoBox.classList.contains('show')) {
+      infoBox.style.left = infoBoxX + 'px';
+      infoBox.style.top = infoBoxY + 'px';
+  }
+}
+
+function initPlanets() {
+  planets = [];
+  // 태양 (중심)
+  planets.push({
+    name: "태양", orbit: 0, size: 50, speed: 0, angle: 0,
+    color: [255, 220, 0],
+    info: {
+      반지름: "696,340 km",
+      성분: "수소, 헬륨",
+      대기: "있음",
+      위성: "없음",
+      기원: "Sol"
+    }
+  });
+
+  const data = [
+    { name: "수성", orbit: 90, size: 6, speed: 4.8, color: [128,128,128], info: { 반지름: "2,439 km", 성분: "암석", 대기: "거의 없음", 위성: "없음", 기원: "헤르메스" }},
+    { name: "금성", orbit: 120, size: 10, speed: 3.5, color: [255,165,0], info: { 반지름: "6,052 km", 성분: "암석", 대기: "CO2", 위성: "없음", 기원: "비너스" }},
+    { name: "지구", orbit: 160, size: 12, speed: 3, color: [0, 102, 204], info: { 반지름: "6,371 km", 성분: "암석", 대기: "질소, 산소", 위성: "달 1개", 기원: "Earth" }},
+    { name: "화성", orbit: 200, size: 9, speed: 2.4, color: [204, 0, 0], info: { 반지름: "3,390 km", 성분: "암석", 대기: "이산화탄소", 위성: "2개", 기원: "마르스" }},
+    { name: "목성", orbit: 250, size: 20, speed: 1.3, color: [255,140,0], info: { 반지름: "69,911 km", 성분: "가스", 대기: "수소, 헬륨", 위성: "92개", 기원: "주피터" }},
+    { name: "토성", orbit: 300, size: 18, speed: 1.0, color: [240,230,140], info: { 반지름: "58,232 km", 성분: "가스", 대기: "수소, 헬륨", 위성: "83개", 기원: "크로노스" }},
+    { name: "천왕성", orbit: 350, size: 16, speed: 0.7, color: [173,216,230], info: { 반지름: "25,362 km", 성분: "가스", 대기: "수소, 헬륨, 메탄", 위성: "27개", 기원: "우라노스" }},
+    { name: "해왕성", orbit: 400, size: 15, speed: 0.5, color: [0, 0, 255], info: { 반지름: "24,622 km", 성분: "가스", 대기: "수소, 헬륨, 메탄", 위성: "14개", 기원: "넵튠" }},
+    { name: "명왕성", orbit: 440, size: 5, speed: 0.3, color: [192,192,192], info: { 반지름: "1,188 km", 성분: "얼음, 암석", 대기: "질소, 메탄", 위성: "5개", 기원: "플루토", 분류: "왜소행성" }},
+  ];
+
+  for (let p of data) {
+    p.angle = random(360);
+    planets.push(p);
+  }
+}
+
+function generateStars() {
+  stars = [];
+  for (let i = 0; i < 400; i++) {
+    stars.push({
+      x: random(width),
+      y: random(height),
+      baseBrightness: random(180, 255),
+      twinkle: random(0.01, 0.05),
+      phase: random(TWO_PI)
+    });
+  }
+}
+
+function drawStars() {
+  noStroke();
+  for (let s of stars) {
+    let flicker = sin(frameCount * s.twinkle + s.phase) * 30;
+    let b = constrain(s.baseBrightness + flicker, 180, 255);
+    fill(b);
+    ellipse(s.x, s.y, 1.5);
+  }
+}
+
+// 클릭 / 터치 이벤트로 행성 선택 및 정보창 출력
+function mousePressed() {
+  if (checkInfoBoxHit(mouseX, mouseY)) {
+    return;
+  }
+  handleClick(mouseX, mouseY);
+}
+function touchStarted() {
+  if (checkInfoBoxHit(touchX, touchY)) {
+    return false;
+  }
+  handleClick(touchX, touchY);
+  return false;
+}
+
+function handleClick(x, y) {
+  let mx = (x - width / 2) / zoom;
+  let my = (y - height / 2) / zoom;
+
+  // 행성 클릭 감지
+  for (let p of planets) {
+    if (dist(mx, my, p.x, p.y) < p.size * 1.5) {
+      if (selectedPlanet === p) {
+        closeInfoBox();
+      } else {
+        selectedPlanet = p;
+        showInfoBox(p);
+      }
+      return;
+    }
+  }
+
+  // 행성 외 클릭시 정보창 닫기
+  if (selectedPlanet) closeInfoBox();
+}
+
+function showInfoBox(planet) {
+  if (!planet) return;
+  infoContent.innerHTML = "";
+  let keys = Object.keys(planet.info);
+  for (let k of keys) {
+    let li = document.createElement('li');
+    li.textContent = `${k}: ${planet.info[k]}`;
+    infoContent.appendChild(li);
+  }
+  infoBox.querySelector('h2').textContent = `🌍 ${planet.name} 정보`;
+  infoBox.classList.add('show');
+  infoBox.style.left = infoBoxX + 'px';
+  infoBox.style.top = infoBoxY + 'px';
+  selectedPlanet = planet;
+}
+
+function closeInfoBox() {
+  selectedPlanet = null;
+  infoBox.classList.remove('show');
+}
+
+// 드래그 시작
+function infoMouseDown(e) {
+  e.preventDefault();
+  draggingInfo = true;
+  dragOffsetX = e.clientX - infoBox.offsetLeft;
+  dragOffsetY = e.clientY - infoBox.offsetTop;
+}
+// 드래그 중
+function infoMouseMove(e) {
+  if (!draggingInfo) return;
+  e.preventDefault();
+  infoBoxX = e.clientX - dragOffsetX;
+  infoBoxY = e.clientY - dragOffsetY;
+  infoBox.style.left = infoBoxX + 'px';
+  infoBox.style.top = infoBoxY + 'px';
+}
+// 드래그 끝
+function infoMouseUp(e) {
+  draggingInfo = false;
+}
+
+// 터치 드래그 시작
+function infoTouchStart(e) {
+  if (e.touches.length !== 1) return;
+  e.preventDefault();
+  draggingInfo = true;
+  let touch = e.touches[0];
+  dragOffsetX = touch.clientX - infoBox.offsetLeft;
+  dragOffsetY = touch.clientY - infoBox.offsetTop;
+}
+// 터치 드래그 중
+function infoTouchMove(e) {
+  if (!draggingInfo) return;
+  e.preventDefault();
+  let touch = e.touches[0];
+  infoBoxX = touch.clientX - dragOffsetX;
+  infoBoxY = touch.clientY - dragOffsetY;
+  infoBox.style.left = infoBoxX + 'px';
+  infoBox.style.top = infoBoxY + 'px';
+}
+// 터치 드래그 끝
+function infoTouchEnd(e) {
+  draggingInfo = false;
+}
+
+function togglePause() {
+  isPaused = !isPaused;
+  document.getElementById("pauseBtn").textContent = isPaused ? "▶ 재생" : "⏸ 정지";
+}
+
+function adjustSpeed(delta) {
+  displaySpeed = constrain(displaySpeed + delta, 0.1, maxDisplaySpeed);
+  updateSpeedDisplay(); // 속도 조절 후 배속 표시 업데이트
+}
+
+function updateSpeedDisplay() {
+  speedDisplay.textContent = `배속: x${displaySpeed.toFixed(1)}`; // 소수점 첫째자리까지 표시
+}
+
+function setZoom(val) {
+  zoom = constrain(val, 0.5, 2);
+  document.getElementById("zoomSlider").value = zoom;
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+}
+
+function checkInfoBoxHit(x, y) {
+  if (!selectedPlanet) return false;
+  let rectLeft = infoBoxX;
+  let rectTop = infoBoxY;
+  let rectRight = rectLeft + infoBox.offsetWidth;
+  let rectBottom = rectTop + infoBox.offsetHeight;
+  return (x >= rectLeft && x <= rectRight && y >= rectTop && y <= rectBottom);
+}
+</script>
+</body>
+</html>
