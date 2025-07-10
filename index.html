@@ -123,18 +123,18 @@
     }
     /* 배속 표시 스타일 (독립) */
     #speedDisplay {
-      position: fixed; /* 독립적인 위치 설정 */
-      top: 20px; /* 상단에서 20px */
-      right: 20px; /* 오른쪽에서 20px */
+      position: fixed;
+      top: 20px;
+      right: 20px;
       font-size: 14px;
       font-weight: bold;
       color: #333;
-      background: rgba(255,255,255,0.85); /* 줌 컨트롤과 유사한 배경 */
+      background: rgba(255,255,255,0.85);
       padding: 6px 10px;
       border-radius: 5px;
       text-align: center;
       width: 80px;
-      z-index: 1000; /* 다른 UI 요소 위에 표시 */
+      z-index: 1000;
     }
   </style>
 </head>
@@ -196,7 +196,11 @@ function setup() {
   document.getElementById('zoomInBtn').addEventListener('click', () => setZoom(zoom * 1.1));
   document.getElementById('zoomOutBtn').addEventListener('click', () => setZoom(zoom / 1.1));
   document.getElementById('zoomSlider').addEventListener('input', (e) => setZoom(parseFloat(e.target.value)));
-  document.getElementById('closeBtn').addEventListener('click', closeInfoBox);
+  // 'x' 버튼 클릭 이벤트 리스너 수정: event.stopPropagation() 추가
+  document.getElementById('closeBtn').addEventListener('click', (event) => {
+    event.stopPropagation(); // 이벤트 전파 중지
+    closeInfoBox();
+  });
 
   // 드래그 시작
   infoBox.addEventListener('mousedown', infoMouseDown);
@@ -426,11 +430,11 @@ function togglePause() {
 
 function adjustSpeed(delta) {
   displaySpeed = constrain(displaySpeed + delta, 0.1, maxDisplaySpeed);
-  updateSpeedDisplay(); // 속도 조절 후 배속 표시 업데이트
+  updateSpeedDisplay();
 }
 
 function updateSpeedDisplay() {
-  speedDisplay.textContent = `배속: x${displaySpeed.toFixed(1)}`; // 소수점 첫째자리까지 표시
+  speedDisplay.textContent = `배속: x${displaySpeed.toFixed(1)}`;
 }
 
 function setZoom(val) {
