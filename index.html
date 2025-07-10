@@ -136,6 +136,21 @@
       width: 80px;
       z-index: 1000;
     }
+    /* 날짜 표시 스타일 */
+    #dateDisplay {
+      position: fixed;
+      top: 60px; /* speedDisplay 아래에 위치 */
+      right: 20px;
+      font-size: 14px;
+      font-weight: bold;
+      color: #333;
+      background: rgba(255,255,255,0.85);
+      padding: 6px 10px;
+      border-radius: 5px;
+      text-align: center;
+      width: 180px; /* 너비 조정 */
+      z-index: 1000;
+    }
   </style>
 </head>
 <body>
@@ -154,6 +169,8 @@
 
 <span id="speedDisplay">배속: x1.0</span>
 
+<span id="dateDisplay">날짜: 2025년 01월 01일</span>
+
 <div id="infoBox">
   <span id="closeBtn">×</span>
   <h2>행성 정보</h2>
@@ -170,11 +187,27 @@ let displaySpeed = 1;
 let maxDisplaySpeed = 4;
 let currentSpeed = baseSpeed;
 let isPaused = false;
-let zoom = 1;
+
+// 카메라 관련 변수 추가
+let camX = 0; // 현재 카메라 X 위치
+let camY = 0; // 현재 카메라 Y 위치
+let targetCamX = 0; // 목표 카메라 X 위치
+let targetCamY = 0; // 목표 카메라 Y 위치
+let zoom = 1; // 현재 확대/축소 배율
+let targetZoom = 1; // 목표 확대/축소 배율
+let isFollowingPlanet = false; // 행성 추적 중인지 여부
+let cameraEaseFactor = 0.08; // 카메라 이동 부드러움 정도 (0.01~0.1 정도)
+let defaultZoom = 1; // 기본 줌 레벨 (슬라이더로 조절됨)
+let focusedPlanetZoom = 2; // 행성 포커싱 시 줌 레벨
+
+// 날짜 관련 변수 추가
+let currentDate; // 현재 시뮬레이션 날짜 Date 객체
+let daysPerSimulatedFrame = 0.05; // 1 프레임당 지나가는 시뮬레이션 일수 (배속 1 기준)
 
 let infoBox = null;
 let infoContent = null;
 let speedDisplay = null;
+let dateDisplay = null; // 날짜 표시 요소
 let infoBoxX = 20, infoBoxY = 60;
 let draggingInfo = false;
 let dragOffsetX = 0, dragOffsetY = 0;
@@ -188,13 +221,17 @@ function setup() {
   infoBox = document.getElementById('infoBox');
   infoContent = document.getElementById('infoContent');
   speedDisplay = document.getElementById('speedDisplay');
+  dateDisplay = document.getElementById('dateDisplay'); // 날짜 표시 요소 가져오기
+
+  // 날짜 초기화 (2025년 1월 1일로 시작)
+  currentDate = new Date('2025-01-01T00:00:00');
 
   // 버튼 이벤트 연결
   document.getElementById('pauseBtn').addEventListener('click', togglePause);
   document.getElementById('slowBtn').addEventListener('click', () => adjustSpeed(-0.1));
   document.getElementById('fastBtn').addEventListener('click', () => adjustSpeed(0.1));
-  document.getElementById('zoomInBtn').addEventListener('click', () => setZoom(zoom * 1.1));
-  document.getElementById('zoomOutBtn').addEventListener('click', () => setZoom(zoom / 1.1));
+  document.getElementById('zoomInBtn').addEventListener('click', () => setZoom(defaultZoom * 1.1));
+  document.getElementById('zoomOutBtn').addEventListener('click', () => setZoom(defaultZoom / 1.1));
   document.getElementById('zoomSlider').addEventListener('input', (e) => setZoom(parseFloat(e.target.value)));
   // 'x' 버튼 클릭 이벤트 리스너 수정: event.stopPropagation() 추가
   document.getElementById('closeBtn').addEventListener('click', (event) => {
@@ -213,13 +250,37 @@ function setup() {
   window.addEventListener('touchmove', infoTouchMove, {passive: false});
 
   updateSpeedDisplay(); // 초기 배속 표시
+  updateDateDisplay(); // 초기 날짜 표시
 }
 
 function draw() {
   background(0);
   drawStars();
 
-  translate(width / 2, height / 2);
+  // 날짜 업데이트
+  if (!isPaused) {
+    currentDate.setDate(currentDate.getDate() + daysPerSimulatedFrame * currentSpeed);
+    updateDateDisplay();
+  }
+
+  // 카메라 업데이트 로직
+  if (isFollowingPlanet && selectedPlanet) {
+    targetCamX = -selectedPlanet.x; // 행성 위치를 화면 중앙으로 가져오기 위해 반대 방향으로 이동
+    targetCamY = -selectedPlanet.y;
+    targetZoom = focusedPlanetZoom;
+  } else {
+    targetCamX = 0; // 태양을 중심으로
+    targetCamY = 0;
+    targetZoom = defaultZoom; // 기본 줌 레벨 사용
+  }
+
+  // 카메라 위치와 줌 부드럽게 보간
+  camX = lerp(camX, targetCamX, cameraEaseFactor);
+  camY = lerp(camY, targetCamY, cameraEaseFactor);
+  zoom = lerp(zoom, targetZoom, cameraEaseFactor);
+
+  // 카메라 변환 적용 (translate, scale 순서 중요)
+  translate(width / 2 + camX * zoom, height / 2 + camY * zoom);
   scale(zoom);
 
   let targetSpeed = isPaused ? 0 : baseSpeed * displaySpeed;
@@ -229,6 +290,7 @@ function draw() {
   stroke(100, 150);
   strokeWeight(1);
   for (let p of planets) {
+    // 태양은 궤도를 그리지 않음
     if (p.orbit > 0) ellipse(0, 0, p.orbit * 2);
   }
 
@@ -252,7 +314,8 @@ function draw() {
     fill(255);
     stroke(0);
     strokeWeight(3);
-    textSize(12 / zoom);
+    // 줌에 따라 텍스트 크기 조절
+    textSize(12 / (zoom / defaultZoom)); // 기본 줌에 대한 상대적인 크기 유지
     textAlign(CENTER);
     text(p.name, x, y - p.size - 8);
     noStroke();
@@ -323,13 +386,15 @@ function drawStars() {
 
 // 클릭 / 터치 이벤트로 행성 선택 및 정보창 출력
 function mousePressed() {
-  if (checkInfoBoxHit(mouseX, mouseY)) {
+  // 정보창 드래그 중이거나 정보창 내부 클릭 시, 행성 클릭 이벤트 무시
+  if (checkInfoBoxHit(mouseX, mouseY) || draggingInfo) {
     return;
   }
   handleClick(mouseX, mouseY);
 }
 function touchStarted() {
-  if (checkInfoBoxHit(touchX, touchY)) {
+  // 정보창 드래그 중이거나 정보창 내부 터치 시, 행성 터치 이벤트 무시
+  if (checkInfoBoxHit(touchX, touchY) || draggingInfo) {
     return false;
   }
   handleClick(touchX, touchY);
@@ -337,24 +402,29 @@ function touchStarted() {
 }
 
 function handleClick(x, y) {
-  let mx = (x - width / 2) / zoom;
-  let my = (y - height / 2) / zoom;
+  let mx = (x - (width / 2 + camX * zoom)) / zoom; // 카메라 이동 및 줌 반영된 마우스 좌표
+  let my = (y - (height / 2 + camY * zoom)) / zoom; // 카메라 이동 및 줌 반영된 마우스 좌표
 
   // 행성 클릭 감지
   for (let p of planets) {
-    if (dist(mx, my, p.x, p.y) < p.size * 1.5) {
+    // 클릭 감지 시 행성 크기에 줌을 역으로 반영하여 클릭 영역 고정
+    if (dist(mx, my, p.x, p.y) < p.size * 1.5 / (zoom / defaultZoom)) { // 클릭 반경도 줌에 맞춰 조절
       if (selectedPlanet === p) {
+        // 이미 선택된 행성이면 정보창 닫고 팔로우 중지
         closeInfoBox();
       } else {
         selectedPlanet = p;
         showInfoBox(p);
+        isFollowingPlanet = true; // 행성 팔로우 시작
       }
-      return;
+      return; // 행성을 클릭했으므로 다른 클릭 처리 중단
     }
   }
 
-  // 행성 외 클릭시 정보창 닫기
-  if (selectedPlanet) closeInfoBox();
+  // 행성 외 클릭시 정보창 닫기 (선택된 행성이 있을 경우만)
+  if (selectedPlanet) {
+    closeInfoBox();
+  }
 }
 
 function showInfoBox(planet) {
@@ -370,12 +440,14 @@ function showInfoBox(planet) {
   infoBox.classList.add('show');
   infoBox.style.left = infoBoxX + 'px';
   infoBox.style.top = infoBoxY + 'px';
-  selectedPlanet = planet;
+  // selectedPlanet은 handleClick에서 이미 설정됨
 }
 
 function closeInfoBox() {
   selectedPlanet = null;
   infoBox.classList.remove('show');
+  isFollowingPlanet = false; // 행성 팔로우 중지
+  // targetCamX, targetCamY, targetZoom은 draw에서 자동으로 기본값으로 돌아감
 }
 
 // 드래그 시작
@@ -437,17 +509,32 @@ function updateSpeedDisplay() {
   speedDisplay.textContent = `배속: x${displaySpeed.toFixed(1)}`;
 }
 
+// 날짜 표시 업데이트 함수
+function updateDateDisplay() {
+  const year = currentDate.getFullYear();
+  const month = String(currentDate.getMonth() + 1).padStart(2, '0'); // 2자리로
+  const day = String(currentDate.getDate()).padStart(2, '0'); // 2자리로
+  dateDisplay.textContent = `날짜: ${year}년 ${month}월 ${day}일`;
+}
+
 function setZoom(val) {
-  zoom = constrain(val, 0.5, 2);
-  document.getElementById("zoomSlider").value = zoom;
+  defaultZoom = constrain(val, 0.5, 2); // 슬라이더는 기본 줌을 조절
+  document.getElementById("zoomSlider").value = defaultZoom;
+  // 행성 팔로우 중이 아니라면, 현재 줌도 바로 업데이트
+  if (!isFollowingPlanet) {
+      zoom = defaultZoom;
+  }
 }
 
 function windowResized() {
   resizeCanvas(windowWidth, windowHeight);
 }
 
+// 정보창이 클릭된 위치에 있는지 확인하는 함수 (드래그 시작 등)
 function checkInfoBoxHit(x, y) {
-  if (!selectedPlanet) return false;
+  // 정보창이 보이지 않으면 충돌 체크하지 않음
+  if (!infoBox.classList.contains('show')) return false;
+
   let rectLeft = infoBoxX;
   let rectTop = infoBoxY;
   let rectRight = rectLeft + infoBox.offsetWidth;
