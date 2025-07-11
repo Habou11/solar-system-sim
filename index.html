@@ -107,20 +107,6 @@
     #infoBox ul li {
       margin-bottom: 6px;
     }
-    #closeBtn {
-      position: absolute;
-      top: 8px;
-      right: 12px;
-      font-size: 20px;
-      font-weight: bold;
-      color: #444;
-      cursor: pointer;
-      user-select:none;
-      transition: color 0.2s;
-    }
-    #closeBtn:hover {
-      color: #000;
-    }
     /* 배속 표시 스타일 (독립) */
     #speedDisplay {
       position: fixed;
@@ -136,20 +122,26 @@
       width: 80px;
       z-index: 1000;
     }
-    /* 날짜 표시 스타일 */
-    #dateDisplay {
+    /* 검색창 스타일 */
+    .search-container {
       position: fixed;
-      top: 60px; /* speedDisplay 아래에 위치 */
-      right: 20px;
-      font-size: 14px;
-      font-weight: bold;
-      color: #333;
-      background: rgba(255,255,255,0.85);
-      padding: 6px 10px;
-      border-radius: 5px;
-      text-align: center;
-      width: 180px; /* 너비 조정 */
+      top: 20px;
+      left: 20px;
       z-index: 1000;
+    }
+    #planetSearchInput {
+      padding: 8px 12px;
+      font-size: 14px;
+      border: none;
+      border-radius: 6px;
+      background: rgba(255,255,255,0.85);
+      color: #333;
+      outline: none;
+      width: 160px;
+      user-select: text; /* 검색창 텍스트 입력 가능하도록 추가 */
+    }
+    #planetSearchInput::placeholder {
+      color: #666;
     }
   </style>
 </head>
@@ -169,10 +161,11 @@
 
 <span id="speedDisplay">배속: x1.0</span>
 
-<span id="dateDisplay">날짜: 2025년 01월 01일</span>
+<div class="search-container">
+  <input type="text" id="planetSearchInput" placeholder="행성 이름 검색..." />
+</div>
 
 <div id="infoBox">
-  <span id="closeBtn">×</span>
   <h2>행성 정보</h2>
   <ul id="infoContent"></ul>
 </div>
@@ -181,33 +174,31 @@
 <script>
 let planets = [];
 let stars = [];
-let selectedPlanet = null;
+
+let selectedPlanet = null; // 선택된 행성 또는 위성
 let baseSpeed = 0.5;
 let displaySpeed = 1;
 let maxDisplaySpeed = 4;
 let currentSpeed = baseSpeed;
 let isPaused = false;
 
-// 카메라 관련 변수 추가
-let camX = 0; // 현재 카메라 X 위치
-let camY = 0; // 현재 카메라 Y 위치
-let targetCamX = 0; // 목표 카메라 X 위치
-let targetCamY = 0; // 목표 카메라 Y 위치
-let zoom = 1; // 현재 확대/축소 배율
-let targetZoom = 1; // 목표 확대/축소 배율
-let isFollowingPlanet = false; // 행성 추적 중인지 여부
-let cameraEaseFactor = 0.08; // 카메라 이동 부드러움 정도 (0.01~0.1 정도)
-let defaultZoom = 1; // 기본 줌 레벨 (슬라이더로 조절됨)
-let focusedPlanetZoom = 2; // 행성 포커싱 시 줌 레벨
-
-// 날짜 관련 변수 추가
-let currentDate; // 현재 시뮬레이션 날짜 Date 객체
-let daysPerSimulatedFrame = 0.05; // 1 프레임당 지나가는 시뮬레이션 일수 (배속 1 기준)
+// 카메라 관련 변수
+let camX = 0;
+let camY = 0;
+let targetCamX = 0;
+let targetCamY = 0;
+let zoom = 1;
+let targetZoom = 1;
+let isFollowingPlanet = false; // 행성(부모) 추적 중인지 여부
+let cameraEaseFactor = 0.08;
+let defaultZoom = 1;
+let focusedPlanetZoom = 2;
 
 let infoBox = null;
 let infoContent = null;
 let speedDisplay = null;
-let dateDisplay = null; // 날짜 표시 요소
+let planetSearchInput = null;
+
 let infoBoxX = 20, infoBoxY = 60;
 let draggingInfo = false;
 let dragOffsetX = 0, dragOffsetY = 0;
@@ -221,10 +212,7 @@ function setup() {
   infoBox = document.getElementById('infoBox');
   infoContent = document.getElementById('infoContent');
   speedDisplay = document.getElementById('speedDisplay');
-  dateDisplay = document.getElementById('dateDisplay'); // 날짜 표시 요소 가져오기
-
-  // 날짜 초기화 (2025년 1월 1일로 시작)
-  currentDate = new Date('2025-01-01T00:00:00');
+  planetSearchInput = document.getElementById('planetSearchInput');
 
   // 버튼 이벤트 연결
   document.getElementById('pauseBtn').addEventListener('click', togglePause);
@@ -233,10 +221,49 @@ function setup() {
   document.getElementById('zoomInBtn').addEventListener('click', () => setZoom(defaultZoom * 1.1));
   document.getElementById('zoomOutBtn').addEventListener('click', () => setZoom(defaultZoom / 1.1));
   document.getElementById('zoomSlider').addEventListener('input', (e) => setZoom(parseFloat(e.target.value)));
-  // 'x' 버튼 클릭 이벤트 리스너 수정: event.stopPropagation() 추가
-  document.getElementById('closeBtn').addEventListener('click', (event) => {
-    event.stopPropagation(); // 이벤트 전파 중지
-    closeInfoBox();
+
+  // 행성 검색 입력 이벤트 리스너
+  planetSearchInput.addEventListener('input', (event) => {
+      const query = event.target.value.toLowerCase().trim();
+      let found = false;
+
+      if (query === '') {
+          closeInfoBox();
+          return;
+      }
+
+      // 행성 먼저 검색
+      for (let p of planets) {
+          if (p.name.toLowerCase().includes(query)) {
+              selectedPlanet = p;
+              showInfoBox(p);
+              isFollowingPlanet = true;
+              found = true;
+              break;
+          }
+      }
+
+      // 행성에서 못 찾았으면 위성 검색
+      if (!found) {
+        for (let p of planets) {
+            if (p.moons) {
+                for (let m of p.moons) {
+                    if (m.name.toLowerCase().includes(query)) {
+                        selectedPlanet = m; // 위성 객체를 selectedPlanet에 저장
+                        showInfoBox(m); // 위성 정보 표시
+                        isFollowingPlanet = false; // 위성은 팔로우하지 않음
+                        found = true;
+                        break;
+                    }
+                }
+            }
+            if (found) break;
+        }
+      }
+
+      if (!found) {
+          closeInfoBox();
+      }
   });
 
   // 드래그 시작
@@ -249,37 +276,28 @@ function setup() {
   window.addEventListener('touchend', infoTouchEnd);
   window.addEventListener('touchmove', infoTouchMove, {passive: false});
 
-  updateSpeedDisplay(); // 초기 배속 표시
-  updateDateDisplay(); // 초기 날짜 표시
+  updateSpeedDisplay();
 }
 
 function draw() {
   background(0);
   drawStars();
 
-  // 날짜 업데이트
-  if (!isPaused) {
-    currentDate.setDate(currentDate.getDate() + daysPerSimulatedFrame * currentSpeed);
-    updateDateDisplay();
-  }
-
-  // 카메라 업데이트 로직
-  if (isFollowingPlanet && selectedPlanet) {
-    targetCamX = -selectedPlanet.x; // 행성 위치를 화면 중앙으로 가져오기 위해 반대 방향으로 이동
+  // 카메라 업데이트 로직 (선택된 것이 행성이면 팔로우, 위성이면 팔로우 안 함)
+  if (isFollowingPlanet && selectedPlanet && !selectedPlanet.isMoon) {
+    targetCamX = -selectedPlanet.x;
     targetCamY = -selectedPlanet.y;
     targetZoom = focusedPlanetZoom;
   } else {
-    targetCamX = 0; // 태양을 중심으로
+    targetCamX = 0;
     targetCamY = 0;
-    targetZoom = defaultZoom; // 기본 줌 레벨 사용
+    targetZoom = defaultZoom;
   }
 
-  // 카메라 위치와 줌 부드럽게 보간
   camX = lerp(camX, targetCamX, cameraEaseFactor);
   camY = lerp(camY, targetCamY, cameraEaseFactor);
   zoom = lerp(zoom, targetZoom, cameraEaseFactor);
 
-  // 카메라 변환 적용 (translate, scale 순서 중요)
   translate(width / 2 + camX * zoom, height / 2 + camY * zoom);
   scale(zoom);
 
@@ -289,11 +307,12 @@ function draw() {
   noFill();
   stroke(100, 150);
   strokeWeight(1);
+  // 행성 궤도 그리기
   for (let p of planets) {
-    // 태양은 궤도를 그리지 않음
     if (p.orbit > 0) ellipse(0, 0, p.orbit * 2);
   }
 
+  // 행성 그리기
   for (let p of planets) {
     if (p.orbit > 0) p.angle += p.speed * currentSpeed;
     let x = p.orbit === 0 ? 0 : cos(p.angle) * p.orbit;
@@ -301,27 +320,74 @@ function draw() {
     p.x = x;
     p.y = y;
 
+    // ----- 행성 자전 구현 시작 -----
+    push(); // 현재 변환 상태 저장
+    translate(x, y); // 행성 위치로 이동
+
+    p.rotationAngle += p.rotationSpeed * currentSpeed; // 자전 각도 업데이트
+    rotate(p.rotationAngle); // 현재 자전 각도만큼 회전
+
     // 할로 효과
     noStroke();
     for(let i=0; i<5; i++) {
       fill(p.color[0], p.color[1], p.color[2], 80 - i*15);
-      ellipse(x, y, p.size*2 + i*10);
+      ellipse(0, 0, p.size*2 + i*10); // 중심 (0,0)에서 그리기
     }
 
     fill(p.color[0], p.color[1], p.color[2]);
-    ellipse(x, y, p.size * 2);
+    ellipse(0, 0, p.size * 2); // 중심 (0,0)에서 그리기
+
+    pop(); // 이전 변환 상태 복원
+    // ----- 행성 자전 구현 끝 -----
 
     fill(255);
     stroke(0);
     strokeWeight(3);
-    // 줌에 따라 텍스트 크기 조절
-    textSize(12 / (zoom / defaultZoom)); // 기본 줌에 대한 상대적인 크기 유지
+    textSize(12 / (zoom / defaultZoom));
     textAlign(CENTER);
-    text(p.name, x, y - p.size - 8);
+    text(p.name, x, y - p.size - 8); // 이름은 회전과 무관하게 고정된 위치에
     noStroke();
+
+    // 위성 그리기 (행성에 위성이 있을 경우)
+    if (p.moons) {
+      for (let m of p.moons) {
+        m.angle += m.speed * currentSpeed;
+        let moonX = p.x + cos(m.angle) * m.orbit;
+        let moonY = p.y + sin(m.angle) * m.orbit;
+        m.x = moonX;
+        m.y = moonY;
+
+        // 위성 궤도 그리기 (부모 행성 주위)
+        noFill();
+        stroke(100, 100);
+        strokeWeight(0.5);
+        ellipse(p.x, p.y, m.orbit * 2);
+
+        // ----- 위성 자전 구현 시작 -----
+        push(); // 현재 변환 상태 저장
+        translate(moonX, moonY); // 위성 위치로 이동
+
+        m.rotationAngle += m.rotationSpeed * currentSpeed; // 자전 각도 업데이트
+        rotate(m.rotationAngle); // 현재 자전 각도만큼 회전
+
+        fill(m.color[0], m.color[1], m.color[2]);
+        noStroke();
+        ellipse(0, 0, m.size * 2); // 중심 (0,0)에서 그리기
+
+        pop(); // 이전 변환 상태 복원
+        // ----- 위성 자전 구현 끝 -----
+
+        fill(255);
+        stroke(0);
+        strokeWeight(1.5);
+        textSize(8 / (zoom / defaultZoom));
+        textAlign(CENTER);
+        text(m.name, moonX, moonY - m.size - 5); // 이름은 회전과 무관하게 고정된 위치에
+        noStroke();
+      }
+    }
   }
 
-  // 정보창 드래그중이라면 스타일 업데이트 (선택된 행성 있음)
   if (infoBox.classList.contains('show')) {
       infoBox.style.left = infoBoxX + 'px';
       infoBox.style.top = infoBoxY + 'px';
@@ -334,29 +400,88 @@ function initPlanets() {
   planets.push({
     name: "태양", orbit: 0, size: 50, speed: 0, angle: 0,
     color: [255, 220, 0],
+    rotationAngle: random(360), rotationSpeed: 0.1, // 태양도 자전
     info: {
       반지름: "696,340 km",
       성분: "수소, 헬륨",
       대기: "있음",
       위성: "없음",
-      기원: "Sol"
+      기원: "Sol",
+      밀도: "1.41 g/cm³"
     }
   });
 
   const data = [
-    { name: "수성", orbit: 90, size: 6, speed: 4.8, color: [128,128,128], info: { 반지름: "2,439 km", 성분: "암석", 대기: "거의 없음", 위성: "없음", 기원: "헤르메스" }},
-    { name: "금성", orbit: 120, size: 10, speed: 3.5, color: [255,165,0], info: { 반지름: "6,052 km", 성분: "암석", 대기: "CO2", 위성: "없음", 기원: "비너스" }},
-    { name: "지구", orbit: 160, size: 12, speed: 3, color: [0, 102, 204], info: { 반지름: "6,371 km", 성분: "암석", 대기: "질소, 산소", 위성: "달 1개", 기원: "Earth" }},
-    { name: "화성", orbit: 200, size: 9, speed: 2.4, color: [204, 0, 0], info: { 반지름: "3,390 km", 성분: "암석", 대기: "이산화탄소", 위성: "2개", 기원: "마르스" }},
-    { name: "목성", orbit: 250, size: 20, speed: 1.3, color: [255,140,0], info: { 반지름: "69,911 km", 성분: "가스", 대기: "수소, 헬륨", 위성: "92개", 기원: "주피터" }},
-    { name: "토성", orbit: 300, size: 18, speed: 1.0, color: [240,230,140], info: { 반지름: "58,232 km", 성분: "가스", 대기: "수소, 헬륨", 위성: "83개", 기원: "크로노스" }},
-    { name: "천왕성", orbit: 350, size: 16, speed: 0.7, color: [173,216,230], info: { 반지름: "25,362 km", 성분: "가스", 대기: "수소, 헬륨, 메탄", 위성: "27개", 기원: "우라노스" }},
-    { name: "해왕성", orbit: 400, size: 15, speed: 0.5, color: [0, 0, 255], info: { 반지름: "24,622 km", 성분: "가스", 대기: "수소, 헬륨, 메탄", 위성: "14개", 기원: "넵튠" }},
-    { name: "명왕성", orbit: 440, size: 5, speed: 0.3, color: [192,192,192], info: { 반지름: "1,188 km", 성분: "얼음, 암석", 대기: "질소, 메탄", 위성: "5개", 기원: "플루토", 분류: "왜소행성" }},
+    { name: "수성", orbit: 90, size: 6, speed: 4.8, color: [128,128,128],
+      info: { 반지름: "2,439 km", 성분: "암석", 대기: "거의 없음", 위성: "없음", 기원: "헤르메스", 밀도: "5.43 g/cm³", 중력: "3.7 m/s²" }},
+    { name: "금성", orbit: 120, size: 10, speed: 3.5, color: [255,165,0],
+      info: { 반지름: "6,052 km", 성분: "암석", 대기: "CO2", 위성: "없음", 기원: "비너스", 밀도: "5.24 g/cm³", 중력: "8.87 m/s²" }},
+    { name: "지구", orbit: 160, size: 12, speed: 3, color: [0, 102, 204],
+      info: { 반지름: "6,371 km", 성분: "암석", 대기: "질소, 산소", 위성: "달 1개", 기원: "Earth", 밀도: "5.51 g/cm³", 중력: "9.8 m/s²" },
+      moons: [{
+        name: "달", orbit: 30, size: 3, speed: 15, color: [180,180,180], isMoon: true,
+        rotationAngle: random(360), rotationSpeed: 8, // 위성 자전 속도
+        info: { 반지름: "1,737 km", 공전주기: "27.3일", 특징: "지구의 유일한 자연 위성", 밀도: "3.34 g/cm³", 중력: "1.62 m/s²" }
+      }]
+    },
+    { name: "화성", orbit: 200, size: 9, speed: 2.4, color: [204, 0, 0],
+      info: { 반지름: "3,390 km", 성분: "암석", 대기: "이산화탄소", 위성: "2개", 기원: "마르스", 밀도: "3.93 g/cm³", 중력: "3.71 m/s²" },
+      moons: [
+        { name: "포보스", orbit: 12, size: 1, speed: 20, color: [150,150,150], isMoon: true,
+          rotationAngle: random(360), rotationSpeed: 20,
+          info: { 반지름: "11.2 km", 공전주기: "0.3일", 특징: "화성에서 가장 큰 위성" }},
+        { name: "데이모스", orbit: 20, size: 0.8, speed: 10, color: [160,160,160], isMoon: true,
+          rotationAngle: random(360), rotationSpeed: 10,
+          info: { 반지름: "6.2 km", 공전주기: "1.3일", 특징: "화성에서 가장 작은 위성" }}
+      ]
+    },
+    { name: "목성", orbit: 250, size: 20, speed: 1.3, color: [255,140,0],
+      info: { 반지름: "69,911 km", 성분: "가스", 대기: "수소, 헬륨", 위성: "92개", 기원: "주피터", 밀도: "1.33 g/cm³", 중력: "24.79 m/s²" },
+      moons: [
+        { name: "이오", orbit: 38, size: 4, speed: 8, color: [255,200,0], isMoon: true,
+          rotationAngle: random(360), rotationSpeed: 8,
+          info: { 반지름: "1,821 km", 공전주기: "1.7일", 특징: "태양계에서 가장 화산 활동이 활발" }},
+        { name: "유로파", orbit: 48, size: 3.5, speed: 5, color: [150,200,255], isMoon: true,
+          rotationAngle: random(360), rotationSpeed: 5,
+          info: { 반지름: "1,560 km", 공전주기: "3.5일", 특징: "얼음 지각 아래 액체 바다 추정" }},
+        { name: "가니메데", orbit: 60, size: 5, speed: 3, color: [190,190,190], isMoon: true,
+          rotationAngle: random(360), rotationSpeed: 3,
+          info: { 반지름: "2,634 km", 공전주기: "7.1일", 특징: "태양계에서 가장 큰 위성" }},
+        { name: "칼리스토", orbit: 75, size: 4.5, speed: 2, color: [170,140,100], isMoon: true,
+          rotationAngle: random(360), rotationSpeed: 2,
+          info: { 반지름: "2,410 km", 공전주기: "16.7일", 특징: "가장 오래된 표면을 가짐" }}
+      ]
+    },
+    { name: "토성", orbit: 300, size: 18, speed: 1.0, color: [240,230,140],
+      info: { 반지름: "58,232 km", 성분: "가스", 대기: "수소, 헬륨", 위성: "83개", 기원: "크로노스", 밀도: "0.687 g/cm³", 중력: "10.44 m/s²" },
+      moons: [
+        { name: "타이탄", orbit: 50, size: 4.8, speed: 6, color: [220,180,100], isMoon: true,
+          rotationAngle: random(360), rotationSpeed: 6,
+          info: { 반지름: "2,574 km", 공전주기: "16일", 특징: "두꺼운 대기를 가진 유일한 위성" }},
+      ]
+    },
+    { name: "천왕성", orbit: 350, size: 16, speed: 0.7, color: [173,216,230],
+      info: { 반지름: "25,362 km", 성분: "가스", 대기: "수소, 헬륨, 메탄", 위성: "27개", 기원: "우라노스", 밀도: "1.27 g/cm³", 중력: "8.69 m/s²" }},
+    { name: "해왕성", orbit: 400, size: 15, speed: 0.5, color: [0, 0, 255],
+      info: { 반지름: "24,622 km", 성분: "가스", 대기: "수소, 헬륨, 메탄", 위성: "14개", 기원: "넵튠", 밀도: "1.64 g/cm³", 중력: "11.15 m/s²" }},
+    { name: "명왕성", orbit: 440, size: 5, speed: 0.3, color: [192,192,192],
+      info: { 반지름: "1,188 km", 성분: "얼음, 암석", 대기: "질소, 메탄", 위성: "5개", 기원: "플루토", 분류: "왜소행성", 밀도: "1.85 g/cm³", 중력: "0.62 m/s²" }},
   ];
 
   for (let p of data) {
     p.angle = random(360);
+    p.rotationAngle = random(360); // 초기 자전 각도
+    p.rotationSpeed = random(0.5, 2); // 자전 속도 (행성마다 다르게)
+    if (p.moons) {
+        for (let m of p.moons) {
+            m.angle = random(360);
+            m.rotationAngle = random(360); // 위성 초기 자전 각도
+            // 위성마다 자전 속도가 다르도록 (이미 데이터에 포함된 경우도 있음)
+            if (m.rotationSpeed === undefined) {
+              m.rotationSpeed = random(5, 15);
+            }
+        }
+    }
     planets.push(p);
   }
 }
@@ -384,16 +509,13 @@ function drawStars() {
   }
 }
 
-// 클릭 / 터치 이벤트로 행성 선택 및 정보창 출력
 function mousePressed() {
-  // 정보창 드래그 중이거나 정보창 내부 클릭 시, 행성 클릭 이벤트 무시
   if (checkInfoBoxHit(mouseX, mouseY) || draggingInfo) {
     return;
   }
   handleClick(mouseX, mouseY);
 }
 function touchStarted() {
-  // 정보창 드래그 중이거나 정보창 내부 터치 시, 행성 터치 이벤트 무시
   if (checkInfoBoxHit(touchX, touchY) || draggingInfo) {
     return false;
   }
@@ -402,62 +524,94 @@ function touchStarted() {
 }
 
 function handleClick(x, y) {
-  let mx = (x - (width / 2 + camX * zoom)) / zoom; // 카메라 이동 및 줌 반영된 마우스 좌표
-  let my = (y - (height / 2 + camY * zoom)) / zoom; // 카메라 이동 및 줌 반영된 마우스 좌표
+  let mx = (x - (width / 2 + camX * zoom)) / zoom;
+  let my = (y - (height / 2 + camY * zoom)) / zoom;
 
-  // 행성 클릭 감지
+  let clickedSomething = false;
+
+  // 위성 클릭 감지 먼저 (위성이 행성보다 작아 먼저 감지해야 함)
   for (let p of planets) {
-    // 클릭 감지 시 행성 크기에 줌을 역으로 반영하여 클릭 영역 고정
-    if (dist(mx, my, p.x, p.y) < p.size * 1.5 / (zoom / defaultZoom)) { // 클릭 반경도 줌에 맞춰 조절
-      if (selectedPlanet === p) {
-        // 이미 선택된 행성이면 정보창 닫고 팔로우 중지
-        closeInfoBox();
-      } else {
-        selectedPlanet = p;
-        showInfoBox(p);
-        isFollowingPlanet = true; // 행성 팔로우 시작
+    if (p.moons) {
+      for (let m of p.moons) {
+        // 위성의 절대 위치
+        let moonX = p.x + cos(m.angle) * m.orbit;
+        let moonY = p.y + sin(m.angle) * m.orbit;
+        if (dist(mx, my, moonX, moonY) < m.size * 2 / (zoom / defaultZoom)) {
+          if (selectedPlanet === m) {
+            closeInfoBox();
+          } else {
+            selectedPlanet = m;
+            showInfoBox(m);
+            isFollowingPlanet = false; // 위성은 카메라 팔로우 하지 않음
+            if (planetSearchInput) {
+                planetSearchInput.value = m.name;
+            }
+          }
+          clickedSomething = true;
+          break;
+        }
       }
-      return; // 행성을 클릭했으므로 다른 클릭 처리 중단
+    }
+    if (clickedSomething) break;
+  }
+
+  // 위성을 클릭하지 않았다면 행성 클릭 감지
+  if (!clickedSomething) {
+    for (let p of planets) {
+      if (dist(mx, my, p.x, p.y) < p.size * 1.5 / (zoom / defaultZoom)) {
+        if (selectedPlanet === p) {
+          closeInfoBox();
+        } else {
+          selectedPlanet = p;
+          showInfoBox(p);
+          isFollowingPlanet = true; // 행성은 카메라 팔로우
+          if (planetSearchInput) {
+              planetSearchInput.value = p.name;
+          }
+        }
+        clickedSomething = true;
+        break;
+      }
     }
   }
 
-  // 행성 외 클릭시 정보창 닫기 (선택된 행성이 있을 경우만)
-  if (selectedPlanet) {
+  // 아무것도 클릭하지 않았고, 이전에 선택된 것이 있었다면 정보창 닫기
+  if (!clickedSomething && selectedPlanet) {
     closeInfoBox();
   }
 }
 
-function showInfoBox(planet) {
-  if (!planet) return;
+function showInfoBox(obj) {
+  if (!obj) return;
   infoContent.innerHTML = "";
-  let keys = Object.keys(planet.info);
+  let keys = Object.keys(obj.info);
   for (let k of keys) {
     let li = document.createElement('li');
-    li.textContent = `${k}: ${planet.info[k]}`;
+    li.textContent = `${k}: ${obj.info[k]}`;
     infoContent.appendChild(li);
   }
-  infoBox.querySelector('h2').textContent = `🌍 ${planet.name} 정보`;
+  let typePrefix = obj.isMoon ? "🛰️ " : "🌍 ";
+  infoBox.querySelector('h2').textContent = `${typePrefix}${obj.name} 정보`;
   infoBox.classList.add('show');
   infoBox.style.left = infoBoxX + 'px';
   infoBox.style.top = infoBoxY + 'px';
-  // selectedPlanet은 handleClick에서 이미 설정됨
 }
 
 function closeInfoBox() {
   selectedPlanet = null;
   infoBox.classList.remove('show');
-  isFollowingPlanet = false; // 행성 팔로우 중지
-  // targetCamX, targetCamY, targetZoom은 draw에서 자동으로 기본값으로 돌아감
+  isFollowingPlanet = false;
+  if (planetSearchInput) {
+      planetSearchInput.value = '';
+  }
 }
 
-// 드래그 시작
 function infoMouseDown(e) {
   e.preventDefault();
   draggingInfo = true;
   dragOffsetX = e.clientX - infoBox.offsetLeft;
   dragOffsetY = e.clientY - infoBox.offsetTop;
 }
-// 드래그 중
 function infoMouseMove(e) {
   if (!draggingInfo) return;
   e.preventDefault();
@@ -466,12 +620,10 @@ function infoMouseMove(e) {
   infoBox.style.left = infoBoxX + 'px';
   infoBox.style.top = infoBoxY + 'px';
 }
-// 드래그 끝
 function infoMouseUp(e) {
   draggingInfo = false;
 }
 
-// 터치 드래그 시작
 function infoTouchStart(e) {
   if (e.touches.length !== 1) return;
   e.preventDefault();
@@ -480,7 +632,6 @@ function infoTouchStart(e) {
   dragOffsetX = touch.clientX - infoBox.offsetLeft;
   dragOffsetY = touch.clientY - infoBox.offsetTop;
 }
-// 터치 드래그 중
 function infoTouchMove(e) {
   if (!draggingInfo) return;
   e.preventDefault();
@@ -490,7 +641,6 @@ function infoTouchMove(e) {
   infoBox.style.left = infoBoxX + 'px';
   infoBox.style.top = infoBoxY + 'px';
 }
-// 터치 드래그 끝
 function infoTouchEnd(e) {
   draggingInfo = false;
 }
@@ -509,18 +659,9 @@ function updateSpeedDisplay() {
   speedDisplay.textContent = `배속: x${displaySpeed.toFixed(1)}`;
 }
 
-// 날짜 표시 업데이트 함수
-function updateDateDisplay() {
-  const year = currentDate.getFullYear();
-  const month = String(currentDate.getMonth() + 1).padStart(2, '0'); // 2자리로
-  const day = String(currentDate.getDate()).padStart(2, '0'); // 2자리로
-  dateDisplay.textContent = `날짜: ${year}년 ${month}월 ${day}일`;
-}
-
 function setZoom(val) {
-  defaultZoom = constrain(val, 0.5, 2); // 슬라이더는 기본 줌을 조절
+  defaultZoom = constrain(val, 0.5, 2);
   document.getElementById("zoomSlider").value = defaultZoom;
-  // 행성 팔로우 중이 아니라면, 현재 줌도 바로 업데이트
   if (!isFollowingPlanet) {
       zoom = defaultZoom;
   }
@@ -530,9 +671,7 @@ function windowResized() {
   resizeCanvas(windowWidth, windowHeight);
 }
 
-// 정보창이 클릭된 위치에 있는지 확인하는 함수 (드래그 시작 등)
 function checkInfoBoxHit(x, y) {
-  // 정보창이 보이지 않으면 충돌 체크하지 않음
   if (!infoBox.classList.contains('show')) return false;
 
   let rectLeft = infoBoxX;
